@@ -121,8 +121,8 @@
         <p style="font-size: 0.9rem; margin-bottom: 10px;"><strong>Step 1:</strong> Start a new chat</p>
         <button id="btn-create">Generate Offer (I am Host)</button>
 
-        <p style="font-size: 0.9rem; margin: 15px 0 5px;"><strong>Step 2:</strong> Upload partner's .utnamsdp file</p>
-        <input type="file" id="file-input" accept=".utnamsdp">
+        <p style="font-size: 0.9rem; margin: 15px 0 5px;"><strong>Step 2:</strong> Upload partner's .txt file</p>
+        <input type="file" id="file-input" accept=".txt">
         <small style="color: #6b7280; display: block; margin-top: 5px;">
             (If you upload an Offer, an Answer file will generate automatically)
         </small>
@@ -168,7 +168,7 @@
             if (event.candidate === null) {
                 const sdpData = JSON.stringify(peerConnection.localDescription);
                 const fileType = peerConnection.localDescription.type === 'offer' ? 'OFFER' : 'ANSWER';
-                downloadFile(sdpData, `connection_${fileType}.utnamsdp`);
+                downloadFile(sdpData, `connection_${fileType}.txt`);
                 updateStatus(`Generated ${fileType}. Share this file!`);
                 btnCreate.disabled = false; // Re-enable just in case
             }
@@ -232,7 +232,7 @@
 
             } catch (err) {
                 console.error(err);
-                alert("Invalid .utnamsdp file or connection error.");
+                alert("Invalid .txt file or connection error.");
             }
         };
         reader.readAsText(file);
