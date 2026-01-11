@@ -28,7 +28,7 @@
 
 <button id="generate">Generate SDP</button>
 
-<input type="file" id="sdpFile" accept=".utnamsdp" />
+<input type="file" id="sdpFile" accept=".txt" />
 
 <hr />
 
@@ -80,7 +80,7 @@ function downloadSDP(sdp) {
   const blob = new Blob([sdp], { type: "text/plain" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
-  a.download = "signal.utnamsdp";
+  a.download = "signal.txt";
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
