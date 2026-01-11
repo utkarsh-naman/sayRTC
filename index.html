@@ -58,16 +58,16 @@ function createPeer() {
     log("ICE state: " + pc.iceConnectionState);
   };
 
-  pc.ondatachannel = e => {
-    dc = e.channel;
-    setupDataChannel();
-  };
-
-  pc.onicecandidate = e => {
-    if (!e.candidate) {
+  pc.onicegatheringstatechange = () => {
+    if (pc.iceGatheringState === "complete") {
       const sdp = pc.localDescription.sdp;
       downloadSDP(sdp);
     }
+  };
+
+  pc.ondatachannel = e => {
+    dc = e.channel;
+    setupDataChannel();
   };
 }
 
@@ -81,7 +81,9 @@ function downloadSDP(sdp) {
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
   a.download = "signal.utnamsdp";
+  document.body.appendChild(a);
   a.click();
+  document.body.removeChild(a);
 }
 
 document.getElementById("generate").onclick = async () => {
@@ -100,16 +102,13 @@ document.getElementById("sdpFile").onchange = async (e) => {
   if (!file) return;
 
   const text = await file.text();
-
   if (!pc) createPeer();
 
   if (text.includes("a=setup:actpass")) {
-    // Offer
     await pc.setRemoteDescription({ type: "offer", sdp: text });
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
   } else {
-    // Answer
     await pc.setRemoteDescription({ type: "answer", sdp: text });
   }
 };
