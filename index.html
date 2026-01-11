@@ -1,126 +1,301 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <title>Serverless WebRTC SDP Chat</title>
-  <style>
-    body {
-      font-family: Arial, sans-serif;
-      max-width: 600px;
-      margin: auto;
-    }
-    textarea {
-      width: 100%;
-      height: 120px;
-    }
-    input, button {
-      margin: 5px 0;
-      width: 100%;
-    }
-    #chat {
-      height: 150px;
-    }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Zero-Backend P2P Chat</title>
+    <style>
+        :root {
+            --primary: #2563eb;
+            --bg: #f3f4f6;
+            --card: #ffffff;
+            --text: #1f2937;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+        }
+
+        .container {
+            background: var(--card);
+            padding: 2rem;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            width: 100%;
+            max-width: 450px;
+        }
+
+        h2 { margin-top: 0; color: var(--primary); }
+        
+        .section {
+            margin-bottom: 1.5rem;
+            padding-bottom: 1.5rem;
+            border-bottom: 1px solid #e5e7eb;
+        }
+
+        /* Buttons & Inputs */
+        button {
+            background-color: var(--primary);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            width: 100%;
+            transition: opacity 0.2s;
+        }
+
+        button:disabled {
+            background-color: #9ca3af;
+            cursor: not-allowed;
+        }
+
+        button:hover:not(:disabled) { opacity: 0.9; }
+
+        input[type="file"] {
+            display: block;
+            width: 100%;
+            margin-top: 10px;
+            font-size: 0.9rem;
+        }
+
+        /* Status Indicator */
+        #status {
+            font-size: 0.9rem;
+            font-weight: bold;
+            color: #6b7280;
+            margin-bottom: 10px;
+            text-align: center;
+        }
+
+        /* Chat UI */
+        #chat-box {
+            height: 200px;
+            border: 1px solid #e5e7eb;
+            border-radius: 6px;
+            padding: 10px;
+            overflow-y: auto;
+            background: #f9fafb;
+            margin-bottom: 10px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .msg {
+            padding: 6px 10px;
+            border-radius: 4px;
+            max-width: 80%;
+            font-size: 0.9rem;
+        }
+        
+        .msg.sent { align-self: flex-end; background: #dbeafe; color: #1e40af; }
+        .msg.received { align-self: flex-start; background: #e5e7eb; color: #374151; }
+
+        .chat-input-area { display: flex; gap: 8px; }
+        
+        #msg-input {
+            flex: 1;
+            padding: 8px;
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+        }
+    </style>
 </head>
 <body>
 
-<h2>Serverless WebRTC Chat (SDP via WhatsApp)</h2>
+<div class="container">
+    <h2>Secure P2P Chat</h2>
+    <div id="status">Status: Disconnected</div>
 
-<button id="generate">Generate SDP</button>
+    <div class="section" id="connection-controls">
+        <p style="font-size: 0.9rem; margin-bottom: 10px;"><strong>Step 1:</strong> Start a new chat</p>
+        <button id="btn-create">Generate Offer (I am Host)</button>
 
-<input type="file" id="sdpFile" accept=".txt" />
+        <p style="font-size: 0.9rem; margin: 15px 0 5px;"><strong>Step 2:</strong> Upload partner's .utnamsdp file</p>
+        <input type="file" id="file-input" accept=".utnamsdp">
+        <small style="color: #6b7280; display: block; margin-top: 5px;">
+            (If you upload an Offer, an Answer file will generate automatically)
+        </small>
+    </div>
 
-<hr />
-
-<input id="messageInput" placeholder="Type message..." />
-<button id="send">Send Message</button>
-
-<textarea id="chat" readonly></textarea>
+    <div class="chat-section">
+        <div id="chat-box"></div>
+        <div class="chat-input-area">
+            <input type="text" id="msg-input" placeholder="Type a message..." disabled>
+            <button id="btn-send" style="width: auto;" disabled>Send</button>
+        </div>
+    </div>
+</div>
 
 <script>
-let pc;
-let dc;
+    // --- Configuration ---
+    // Public STUN servers allow us to find our public IP address
+    const peerConfiguration = {
+        iceServers: [
+            { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:stun1.l.google.com:19302' }
+        ]
+    };
 
-const chat = document.getElementById("chat");
+    let peerConnection;
+    let dataChannel;
 
-function log(msg) {
-  chat.value += msg + "\n";
-}
+    // --- DOM Elements ---
+    const btnCreate = document.getElementById('btn-create');
+    const fileInput = document.getElementById('file-input');
+    const statusDiv = document.getElementById('status');
+    const chatBox = document.getElementById('chat-box');
+    const msgInput = document.getElementById('msg-input');
+    const btnSend = document.getElementById('btn-send');
 
-function createPeer() {
-  pc = new RTCPeerConnection({
-    iceServers: [
-      { urls: "stun:stun.l.google.com:19302" }
-    ]
-  });
+    // --- Initialization ---
+    function initPeerConnection() {
+        peerConnection = new RTCPeerConnection(peerConfiguration);
 
-  pc.oniceconnectionstatechange = () => {
-    log("ICE state: " + pc.iceConnectionState);
-  };
+        // Event: When we find a "route" (ICE candidate)
+        peerConnection.onicecandidate = (event) => {
+            // We wait until gathering is complete (event.candidate === null) to bundle everything
+            if (event.candidate === null) {
+                const sdpData = JSON.stringify(peerConnection.localDescription);
+                const fileType = peerConnection.localDescription.type === 'offer' ? 'OFFER' : 'ANSWER';
+                downloadFile(sdpData, `connection_${fileType}.utnamsdp`);
+                updateStatus(`Generated ${fileType}. Share this file!`);
+                btnCreate.disabled = false; // Re-enable just in case
+            }
+        };
 
-  pc.onicegatheringstatechange = () => {
-    if (pc.iceGatheringState === "complete") {
-      const sdp = pc.localDescription.sdp;
-      downloadSDP(sdp);
+        // Event: When connection state changes
+        peerConnection.onconnectionstatechange = () => {
+            if (peerConnection.connectionState === 'connected') {
+                updateStatus("✅ Protected Connection Established!");
+                document.getElementById('connection-controls').style.display = 'none';
+                enableChat();
+            }
+        };
+
+        // Event: Receive Data Channel (for the person answering)
+        peerConnection.ondatachannel = (event) => {
+            setupDataChannel(event.channel);
+        };
     }
-  };
 
-  pc.ondatachannel = e => {
-    dc = e.channel;
-    setupDataChannel();
-  };
-}
+    // --- Step 1: Create Offer (Host) ---
+    btnCreate.addEventListener('click', async () => {
+        initPeerConnection();
+        updateStatus("Generating Offer... (Please wait)");
+        btnCreate.disabled = true;
 
-function setupDataChannel() {
-  dc.onopen = () => log("DataChannel open ✅");
-  dc.onmessage = e => log("Peer: " + e.data);
-}
+        // Host creates the data channel
+        dataChannel = peerConnection.createDataChannel("chat");
+        setupDataChannel(dataChannel);
 
-function downloadSDP(sdp) {
-  const blob = new Blob([sdp], { type: "text/plain" });
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = "signal.txt";
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-}
+        const offer = await peerConnection.createOffer();
+        await peerConnection.setLocalDescription(offer);
+        // We now wait for 'onicecandidate' to trigger the download
+    });
 
-document.getElementById("generate").onclick = async () => {
-  if (!pc) {
-    createPeer();
-    dc = pc.createDataChannel("chat");
-    setupDataChannel();
-  }
+    // --- Step 2 & 3: Handle Uploaded File ---
+    fileInput.addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
 
-  const offer = await pc.createOffer();
-  await pc.setLocalDescription(offer);
-};
+        const reader = new FileReader();
+        reader.onload = async (event) => {
+            try {
+                if (!peerConnection) initPeerConnection();
 
-document.getElementById("sdpFile").onchange = async (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
+                const remoteDesc = JSON.parse(event.target.result);
+                await peerConnection.setRemoteDescription(new RTCSessionDescription(remoteDesc));
 
-  const text = await file.text();
-  if (!pc) createPeer();
+                // LOGIC: If we uploaded an OFFER, we must create an ANSWER
+                if (remoteDesc.type === 'offer') {
+                    updateStatus("Offer Received. Generating Answer...");
+                    
+                    const answer = await peerConnection.createAnswer();
+                    await peerConnection.setLocalDescription(answer);
+                    // Wait for ICE gathering -> Auto download Answer
+                } 
+                // LOGIC: If we uploaded an ANSWER, we are just waiting for connection
+                else if (remoteDesc.type === 'answer') {
+                    updateStatus("Answer Received. Connecting...");
+                }
 
-  if (text.includes("a=setup:actpass")) {
-    await pc.setRemoteDescription({ type: "offer", sdp: text });
-    const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
-  } else {
-    await pc.setRemoteDescription({ type: "answer", sdp: text });
-  }
-};
+            } catch (err) {
+                console.error(err);
+                alert("Invalid .utnamsdp file or connection error.");
+            }
+        };
+        reader.readAsText(file);
+    });
 
-document.getElementById("send").onclick = () => {
-  if (dc && dc.readyState === "open") {
-    const msg = document.getElementById("messageInput").value;
-    dc.send(msg);
-    log("You: " + msg);
-    document.getElementById("messageInput").value = "";
-  }
-};
+    // --- Helper: Setup Data Channel ---
+    function setupDataChannel(channel) {
+        dataChannel = channel;
+        dataChannel.onopen = () => console.log("Channel Open");
+        dataChannel.onmessage = (event) => displayMessage(event.data, 'received');
+    }
+
+    // --- Helper: Download File ---
+    function downloadFile(content, filename) {
+        const blob = new Blob([content], {type: 'application/json'});
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }
+
+    // --- Chat Logic ---
+    function enableChat() {
+        msgInput.disabled = false;
+        btnSend.disabled = false;
+        msgInput.focus();
+    }
+
+    function sendMessage() {
+        const text = msgInput.value.trim();
+        if (text && dataChannel && dataChannel.readyState === 'open') {
+            dataChannel.send(text);
+            displayMessage(text, 'sent');
+            msgInput.value = '';
+        }
+    }
+
+    btnSend.addEventListener('click', sendMessage);
+    msgInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') sendMessage();
+    });
+
+    function displayMessage(text, type) {
+        const div = document.createElement('div');
+        div.className = `msg ${type}`;
+        div.textContent = text;
+        chatBox.appendChild(div);
+        chatBox.scrollTop = chatBox.scrollHeight;
+    }
+
+    function updateStatus(text) {
+        statusDiv.textContent = `Status: ${text}`;
+        // If "Generating", show visual cue
+        if (text.includes("Generating")) {
+            statusDiv.style.color = "#d97706"; // Amber
+        } else if (text.includes("Connected")) {
+            statusDiv.style.color = "#059669"; // Green
+        }
+    }
 </script>
 
 </body>
