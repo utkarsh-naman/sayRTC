@@ -186,7 +186,7 @@
 
         peerConnection.onconnectionstatechange = () => {
             if (peerConnection.connectionState === 'connected') {
-                updateStatus("✅ Protected Connection Established!");
+                updateStatus("Protected Connection Established!");
                 document.getElementById('connection-controls').style.display = 'none';
                 enableChat();
             }
