@@ -46,12 +46,13 @@
             background-color: var(--primary);
             color: white;
             border: none;
-            padding: 10px 20px;
+            padding: 12px 20px;
             border-radius: 6px;
             cursor: pointer;
             font-weight: 600;
             width: 100%;
             transition: opacity 0.2s;
+            font-size: 1rem;
         }
 
         button:disabled {
@@ -66,6 +67,9 @@
             width: 100%;
             margin-top: 10px;
             font-size: 0.9rem;
+            padding: 10px;
+            border: 1px dashed #cbd5e1;
+            border-radius: 6px;
         }
 
         /* Status Indicator */
@@ -73,13 +77,16 @@
             font-size: 0.9rem;
             font-weight: bold;
             color: #6b7280;
-            margin-bottom: 10px;
+            margin-bottom: 15px;
             text-align: center;
+            padding: 8px;
+            background: #f8fafc;
+            border-radius: 4px;
         }
 
         /* Chat UI */
         #chat-box {
-            height: 200px;
+            height: 300px;
             border: 1px solid #e5e7eb;
             border-radius: 6px;
             padding: 10px;
@@ -92,10 +99,11 @@
         }
 
         .msg {
-            padding: 6px 10px;
-            border-radius: 4px;
+            padding: 8px 12px;
+            border-radius: 8px;
             max-width: 80%;
-            font-size: 0.9rem;
+            font-size: 0.95rem;
+            word-wrap: break-word;
         }
         
         .msg.sent { align-self: flex-end; background: #dbeafe; color: #1e40af; }
@@ -105,9 +113,10 @@
         
         #msg-input {
             flex: 1;
-            padding: 8px;
+            padding: 10px;
             border: 1px solid #d1d5db;
             border-radius: 6px;
+            font-size: 1rem;
         }
     </style>
 </head>
@@ -121,10 +130,10 @@
         <p style="font-size: 0.9rem; margin-bottom: 10px;"><strong>Step 1:</strong> Start a new chat</p>
         <button id="btn-create">Generate Offer (I am Host)</button>
 
-        <p style="font-size: 0.9rem; margin: 15px 0 5px;"><strong>Step 2:</strong> Upload partner's .txt file</p>
+        <p style="font-size: 0.9rem; margin: 20px 0 5px;"><strong>Step 2:</strong> Upload partner's file</p>
         <input type="file" id="file-input" accept=".txt">
         <small style="color: #6b7280; display: block; margin-top: 5px;">
-            (If you upload an Offer, an Answer file will generate automatically)
+            (Upload the .txt file you received on WhatsApp)
         </small>
     </div>
 
@@ -139,7 +148,6 @@
 
 <script>
     // --- Configuration ---
-    // Public STUN servers allow us to find our public IP address
     const peerConfiguration = {
         iceServers: [
             { urls: 'stun:stun.l.google.com:19302' },
@@ -162,19 +170,20 @@
     function initPeerConnection() {
         peerConnection = new RTCPeerConnection(peerConfiguration);
 
-        // Event: When we find a "route" (ICE candidate)
         peerConnection.onicecandidate = (event) => {
-            // We wait until gathering is complete (event.candidate === null) to bundle everything
             if (event.candidate === null) {
+                // ICE gathering finished
                 const sdpData = JSON.stringify(peerConnection.localDescription);
                 const fileType = peerConnection.localDescription.type === 'offer' ? 'OFFER' : 'ANSWER';
+                
+                // CHANGED: File extension to .txt
                 downloadFile(sdpData, `connection_${fileType}.txt`);
-                updateStatus(`Generated ${fileType}. Share this file!`);
-                btnCreate.disabled = false; // Re-enable just in case
+                
+                updateStatus(`Generated ${fileType}. Share this .txt file!`);
+                btnCreate.disabled = false; 
             }
         };
 
-        // Event: When connection state changes
         peerConnection.onconnectionstatechange = () => {
             if (peerConnection.connectionState === 'connected') {
                 updateStatus("✅ Protected Connection Established!");
@@ -183,28 +192,25 @@
             }
         };
 
-        // Event: Receive Data Channel (for the person answering)
         peerConnection.ondatachannel = (event) => {
             setupDataChannel(event.channel);
         };
     }
 
-    // --- Step 1: Create Offer (Host) ---
+    // --- Step 1: Host creates Offer ---
     btnCreate.addEventListener('click', async () => {
         initPeerConnection();
         updateStatus("Generating Offer... (Please wait)");
         btnCreate.disabled = true;
 
-        // Host creates the data channel
         dataChannel = peerConnection.createDataChannel("chat");
         setupDataChannel(dataChannel);
 
         const offer = await peerConnection.createOffer();
         await peerConnection.setLocalDescription(offer);
-        // We now wait for 'onicecandidate' to trigger the download
     });
 
-    // --- Step 2 & 3: Handle Uploaded File ---
+    // --- Step 2: Handle Uploaded File ---
     fileInput.addEventListener('change', async (e) => {
         const file = e.target.files[0];
         if (!file) return;
@@ -217,37 +223,32 @@
                 const remoteDesc = JSON.parse(event.target.result);
                 await peerConnection.setRemoteDescription(new RTCSessionDescription(remoteDesc));
 
-                // LOGIC: If we uploaded an OFFER, we must create an ANSWER
                 if (remoteDesc.type === 'offer') {
                     updateStatus("Offer Received. Generating Answer...");
-                    
                     const answer = await peerConnection.createAnswer();
                     await peerConnection.setLocalDescription(answer);
-                    // Wait for ICE gathering -> Auto download Answer
                 } 
-                // LOGIC: If we uploaded an ANSWER, we are just waiting for connection
                 else if (remoteDesc.type === 'answer') {
                     updateStatus("Answer Received. Connecting...");
                 }
 
             } catch (err) {
                 console.error(err);
-                alert("Invalid .txt file or connection error.");
+                alert("Invalid file. Please ensure you uploaded the correct .txt file.");
             }
         };
         reader.readAsText(file);
     });
 
-    // --- Helper: Setup Data Channel ---
     function setupDataChannel(channel) {
         dataChannel = channel;
         dataChannel.onopen = () => console.log("Channel Open");
         dataChannel.onmessage = (event) => displayMessage(event.data, 'received');
     }
 
-    // --- Helper: Download File ---
+    // CHANGED: MIME type to text/plain for better mobile support
     function downloadFile(content, filename) {
-        const blob = new Blob([content], {type: 'application/json'});
+        const blob = new Blob([content], {type: 'text/plain'});
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
@@ -258,7 +259,6 @@
         URL.revokeObjectURL(url);
     }
 
-    // --- Chat Logic ---
     function enableChat() {
         msgInput.disabled = false;
         btnSend.disabled = false;
@@ -289,11 +289,10 @@
 
     function updateStatus(text) {
         statusDiv.textContent = `Status: ${text}`;
-        // If "Generating", show visual cue
         if (text.includes("Generating")) {
-            statusDiv.style.color = "#d97706"; // Amber
+            statusDiv.style.color = "#d97706"; 
         } else if (text.includes("Connected")) {
-            statusDiv.style.color = "#059669"; // Green
+            statusDiv.style.color = "#059669"; 
         }
     }
 </script>
